@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CinemaBook — Group Booking Room</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .group-room-layout {
+      display: grid;
+      grid-template-columns: 1fr 280px;
+      gap: 24px;
+      align-items: start;
+      padding: 24px 0;
+    }
+    .group-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      position: sticky; top: 80px;
+    }
+    .rtc-indicator {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.78rem; font-weight: 700;
+      background: var(--green-dim);
+      color: var(--green);
+      margin-bottom: 16px;
+    }
+    .rtc-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: blink 1.2s ease infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+    .rtc-indicator.offline { background: var(--red-dim); color: var(--red); }
+    .rtc-indicator.offline .rtc-dot { background: var(--red); animation:none; }
+
+    .activity-log {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      height: 160px;
+      overflow-y: auto;
+      font-size: 0.78rem;
+      font-family: var(--font-mono);
+    }
+    .log-entry { padding: 3px 0; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+    .log-entry:last-child { border-bottom: none; }
+    .log-entry .log-time { color: var(--text-dim); }
+    .log-entry .log-action { }
+    .admin-controls {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+    .color-legend { display: flex; flex-direction: column; gap: 6px; }
+    .color-legend-item { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; }
+    @media(max-width:900px) {
+      .group-room-layout { grid-template-columns: 1fr; }
+      .group-panel { position: static; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar" id="navbar"></nav>
+
+  <main class="container">
+    <!-- Header Row -->
+    <div class="flex gap-12 mt-16 mb-4" style="flex-wrap:wrap;align-items:center">
+      <div>
+        <h2 style="font-family:var(--font-display);font-size:1.8rem">
+          👥 Group Booking Room
+        </h2>
+        <p class="text-muted" style="font-size:0.85rem">
+          Select seats in real-time with your group. All changes sync instantly.
+        </p>
+      </div>
+      <div style="margin-left:auto;text-align:right">
+        <div class="text-muted" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em">Session Code</div>
+        <div class="session-code" id="display-code" style="font-size:2rem;cursor:pointer"
+             onclick="copyCode()" title="Click to copy">------</div>
+        <div class="copy-hint">Click to copy &amp; share</div>
+      </div>
+    </div>
+
+    <div class="group-room-layout" id="room-layout">
+      <div class="loader" style="padding:80px 0"><div class="spinner"></div></div>
+    </div>
+  </main>
+
+  <!-- Final Confirm Modal (admin only) -->
+  <div class="modal-overlay hidden" id="final-confirm-modal">
+    <div class="modal">
+      <h3 class="modal-title">🎬 Confirm Group Booking</h3>
+      <p class="text-muted mb-16" style="font-size:0.9rem">
+        You are about to confirm the booking for all selected seats. Each participant will be charged their share.
+      </p>
+      <div id="group-confirm-summary"></div>
+      <div class="divider"></div>
+      <div class="flex gap-12 mt-12" style="justify-content:flex-end">
+        <button class="btn btn-outline" onclick="closeModal('final-confirm-modal')">Cancel</button>
+        <button class="btn btn-primary btn-lg" id="final-confirm-btn" onclick="finalConfirm()">
+          Confirm &amp; Pay
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Success Modal -->
+  <div class="modal-overlay hidden" id="group-success-modal">
+    <div class="modal" style="text-align:center">
+      <div style="font-size:4rem;margin-bottom:12px">🎊</div>
+      <h3 class="modal-title" style="text-align:center">Group Booking Done!</h3>
+      <div id="group-booking-code" class="history-code" style="font-size:1.2rem;margin:10px auto;display:inline-block"></div>
+      <div class="qr-section mt-16">
+        <img id="group-qr" src="" alt="QR" style="width:180px;height:180px" />
+      </div>
+      <div class="flex gap-12 mt-16" style="justify-content:center">
+        <button class="btn btn-primary" onclick="window.location.href='/history.html'">My Tickets</button>
+        <button class="btn btn-outline" onclick="window.location.href='/movies.html'">Home</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Load Socket.IO from CDN (served by server) -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/api.js"></script>
+  <script>
+    if (!requireAuth()) throw new Error('Not auth');
+    renderNavbar('movies');
+
+    const params      = new URLSearchParams(window.location.search);
+    const sessionCode = params.get('session');
+    const showId      = params.get('show');
+    const user        = Auth.getUser();
+    if (!sessionCode || !showId) window.location.href = '/movies.html';
+
+    let socket, showData, seatsData;
+    let memberColors   = {};   // userId → color
+    let memberNames    = {};   // userId → name
+    let selectedByMe   = new Set();
+    let isCreator      = false;
+    let myColor        = '#f5c518';
+
+    document.getElementById('display-code').textContent = sessionCode;
+
+    // ── Init WebSocket ────────────────────────────────────────
+    function initSocket() {
+      socket = io(window.location.origin);
+
+      socket.on('connect', () => {
+        setConnectionStatus(true);
+        socket.emit('join_session', {
+          sessionCode,
+          userId:   user.id,
+          userName: user.name
+        });
+      });
+
+      socket.on('disconnect', () => setConnectionStatus(false));
+
+      // Received on join — full current state
+      socket.on('session_state', ({ members, seats, yourColor }) => {
+        myColor = yourColor;
+        members.forEach(m => {
+          memberColors[m.userId] = m.color;
+          memberNames[m.userId]  = m.name;
+        });
+        // Apply locked statuses from server state onto seatsData
+        seats.forEach(s => {
+          const local = seatsData?.find(sd => sd.seat_label === s.seat_label);
+          if (local) { local.status = s.status; local.locked_by = s.locked_by; }
+        });
+        renderMemberList(members);
+        renderSeatGrid();
+        logActivity('🔗 Connected to group session');
+      });
+
+      // Another member joined
+      socket.on('member_joined', ({ userId, userName, color }) => {
+        memberColors[userId] = color;
+        memberNames[userId]  = userName;
+        updateMemberList();
+        logActivity(`👋 ${userName} joined the room`);
+        toast(`${userName} joined the group!`, 'info');
+      });
+
+      // Member left
+      socket.on('member_left', ({ userId, userName }) => {
+        delete memberColors[userId];
+        delete memberNames[userId];
+        updateMemberList();
+        logActivity(`🚪 ${userName || 'Someone'} left the room`);
+      });
+
+      // A seat was updated by any member
+      socket.on('seat_updated', ({ seatLabel, status, userId, userName, color }) => {
+        const seat = seatsData?.find(s => s.seat_label === seatLabel);
+        if (seat) {
+          seat.status    = status;
+          seat.locked_by = status === 'locked' ? userId : null;
+          seat.group_color = color;
+          if (String(userId) === String(user.id)) {
+            if (status === 'locked')    selectedByMe.add(seatLabel);
+            else                        selectedByMe.delete(seatLabel);
+          }
+        }
+        refreshSeatUI(seatLabel);
+        updateGroupSummary();
+        const action = status === 'locked' ? `selected ${seatLabel}` : `released ${seatLabel}`;
+        logActivity(`${userName} ${action}`, color);
+      });
+
+      // Seat conflict
+      socket.on('seat_conflict', ({ seatLabel, message }) => {
+        toast(`${seatLabel}: ${message}`, 'error');
+        const seat = seatsData?.find(s => s.seat_label === seatLabel);
+        if (seat) { seat.status = 'locked'; }
+        refreshSeatUI(seatLabel);
+      });
+
+      // Seats released (on member disconnect)
+      socket.on('seats_released', () => {
+        loadPageData(); // Refresh seat state
+      });
+    }
+
+    // ── Load show + seat data, then connect ──────────────────
+    async function loadPageData() {
+      try {
+        const data = await MoviesAPI.seats(showId);
+        showData  = data.show;
+        seatsData = data.seats;
+
+        // Check if current user is creator
+        const sessionInfo = await GroupsAPI.get(sessionCode);
+        isCreator = String(sessionInfo.session.creator_id) === String(user.id);
+
+        renderRoomLayout();
+        initSocket();
+      } catch (err) {
+        document.getElementById('room-layout').innerHTML =
+          `<div class="empty-state"><div class="empty-icon">⚠️</div><p>${err.message}</p></div>`;
+      }
+    }
+
+    // ── Render the full room layout ───────────────────────────
+    function renderRoomLayout() {
+      document.getElementById('room-layout').innerHTML = `
+        <div>
+          <!-- Show Info -->
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+                      padding:14px 18px;margin-bottom:20px;display:flex;flex-wrap:wrap;gap:16px">
+            <span><strong>${showData.movie_title}</strong></span>
+            <span class="text-muted">${showData.theater_name}</span>
+            <span class="text-muted">${formatDate(showData.show_date)} · ${showData.show_time}</span>
+            <span class="text-gold font-mono">${formatCurrency(showData.price)} / seat</span>
+          </div>
+
+          <!-- Screen -->
+          <div style="text-align:center;margin-bottom:36px">
+            <div class="seat-screen"></div>
+          </div>
+
+          <!-- Seat Grid -->
+          <div class="seat-grid-wrap">
+            <div class="seat-grid" id="seat-grid"></div>
+          </div>
+
+          <!-- Legend -->
+          <div class="legend mt-20">
+            <div class="legend-item"><div class="legend-seat available"></div><span>Available</span></div>
+            <div class="legend-item"><div class="legend-seat selected"></div><span>My selection</span></div>
+            <div class="legend-item"><div class="legend-seat booked"></div><span>Booked</span></div>
+            <div id="group-legend-items"></div>
+          </div>
+        </div>
+
+        <!-- Right panel -->
+        <div class="group-panel">
+          <div class="rtc-indicator offline" id="rtc-status">
+            <div class="rtc-dot"></div>
+            <span>Connecting…</span>
+          </div>
+
+          <div class="panel-title">Members</div>
+          <div class="group-members" id="member-list">
+            <div class="text-muted" style="font-size:0.85rem">Connecting…</div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="panel-title">All Selected Seats</div>
+          <div id="group-seats-summary" class="seat-chips">
+            <span class="text-muted" style="font-size:0.82rem">No seats selected yet</span>
+          </div>
+
+          <div class="price-row mt-8">
+            <span class="text-muted">Total</span>
+            <span class="text-gold font-mono" id="group-total">₹0</span>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="panel-title">Activity</div>
+          <div class="activity-log" id="activity-log">
+            <div class="log-entry"><span class="log-time">--:--</span> Waiting to connect…</div>
+          </div>
+
+          ${isCreator ? `
+            <div class="admin-controls">
+              <div class="chip text-gold mb-16" style="background:var(--gold-dim)">👑 You are the session host</div>
+              <button class="btn btn-primary btn-block" onclick="openFinalConfirm()">
+                ✅ Confirm All Seats
+              </button>
+              <p class="text-muted mt-8" style="font-size:0.75rem">
+                Only you can finalize the booking for everyone.
+              </p>
+            </div>
+          ` : `
+            <div class="mt-16 text-muted" style="font-size:0.82rem">
+              ⏳ Waiting for the host to confirm booking…
+            </div>
+          `}
+        </div>
+      `;
+
+      renderSeatGrid();
+    }
+
+    // ── Render seat grid ──────────────────────────────────────
+    function renderSeatGrid() {
+      const grid = document.getElementById('seat-grid');
+      if (!grid) return;
+
+      const byRow = seatsData.reduce((acc, s) => {
+        if (!acc[s.row_label]) acc[s.row_label] = [];
+        acc[s.row_label].push(s);
+        return acc;
+      }, {});
+
+      grid.innerHTML = Object.entries(byRow).sort(([a],[b]) => a.localeCompare(b)).map(([row, seats]) => `
+        <div class="seat-row">
+          <div class="row-label">${row}</div>
+          ${seats.sort((a,b) => a.col_num - b.col_num).map(s => groupSeatHTML(s)).join('')}
+        </div>
+      `).join('');
+    }
+
+    function groupSeatHTML(seat) {
+      const isMySelection = selectedByMe.has(seat.seat_label);
+      const isBooked = seat.status === 'booked';
+
+      let cls = 'seat ';
+      let style = '';
+      let onclick = '';
+      let title = seat.seat_label;
+
+      if (isBooked) {
+        cls += 'booked'; title = 'Already booked';
+      } else if (isMySelection) {
+        cls += 'selected'; onclick = `onclick="toggleGroupSeat('${seat.seat_label}')"`;
+      } else if (seat.status === 'locked') {
+        // Color-code by who locked it
+        const lockerId = String(seat.locked_by);
+        const color    = seat.group_color || memberColors[lockerId] || '#e74c3c';
+        cls += 'group-locked';
+        style = `background:${color}30;border-color:${color}`;
+        title = `Selected by ${memberNames[lockerId] || 'a member'}`;
+      } else {
+        cls += 'available'; onclick = `onclick="toggleGroupSeat('${seat.seat_label}')"`;
+      }
+
+      return `<div class="${cls}" id="seat-${seat.seat_label}"
+                   style="${style}" title="${title}" ${onclick}></div>`;
+    }
+
+    // ── Toggle group seat via WebSocket ───────────────────────
+    function toggleGroupSeat(label) {
+      const seat = seatsData.find(s => s.seat_label === label);
+      if (!seat || seat.status === 'booked') return;
+
+      const isSelected = selectedByMe.has(label);
+      const action = isSelected ? 'unlock' : 'lock';
+
+      // Emit via WebSocket — server will broadcast back to all
+      socket.emit('select_seat', {
+        sessionCode,
+        seatLabel: label,
+        userId:    user.id,
+        userName:  user.name,
+        action
+      });
+    }
+
+    // ── Update a single seat's DOM ────────────────────────────
+    function refreshSeatUI(label) {
+      const el = document.getElementById(`seat-${label}`);
+      if (!el) return;
+      const seat = seatsData.find(s => s.seat_label === label);
+      if (!seat) return;
+
+      const newEl = document.createElement('div');
+      newEl.outerHTML; // dummy
+      el.outerHTML = groupSeatHTML(seat); // re-render seat
+      // Re-query after outerHTML replacement
+      const updated = document.getElementById(`seat-${label}`);
+      if (updated) updated.outerHTML = groupSeatHTML(seat);
+    }
+
+    // ── Member list ───────────────────────────────────────────
+    function renderMemberList(members) {
+      const list = document.getElementById('member-list');
+      if (!list) return;
+      const colorLegend = document.getElementById('group-legend-items');
+
+      list.innerHTML = members.map(m => `
+        <div class="member-badge">
+          <div class="member-dot" style="background:${m.color}"></div>
+          <span>${m.name}</span>
+          ${String(m.userId) === String(user.id) ? '<span style="color:var(--text-dim);font-size:0.75rem">(you)</span>' : ''}
+        </div>
+      `).join('');
+
+      if (colorLegend) {
+        colorLegend.innerHTML = members
+          .filter(m => String(m.userId) !== String(user.id))
+          .map(m => `
+            <div class="legend-item">
+              <div class="legend-seat" style="background:${m.color}30;border-color:${m.color}"></div>
+              <span>${m.name}</span>
+            </div>
+          `).join('');
+      }
+    }
+
+    function updateMemberList() {
+      const members = Object.entries(memberColors).map(([id, color]) => ({
+        userId: id, name: memberNames[id] || 'User', color
+      }));
+      renderMemberList(members);
+    }
+
+    // ── Group seats summary ───────────────────────────────────
+    function updateGroupSummary() {
+      const allLocked = seatsData.filter(s => s.status === 'locked' || selectedByMe.has(s.seat_label));
+      const total     = allLocked.length * (showData?.price || 0);
+
+      const summaryEl = document.getElementById('group-seats-summary');
+      const totalEl   = document.getElementById('group-total');
+      if (summaryEl) {
+        summaryEl.innerHTML = allLocked.length
+          ? allLocked.map(s => {
+              const color = s.group_color || memberColors[String(s.locked_by)] || myColor;
+              return `<div class="seat-chip" style="border-color:${color};color:${color};background:${color}20">${s.seat_label}</div>`;
+            }).join('')
+          : `<span class="text-muted" style="font-size:0.82rem">No seats selected yet</span>`;
+      }
+      if (totalEl) totalEl.textContent = formatCurrency(total);
+    }
+
+    // ── Activity log ──────────────────────────────────────────
+    function logActivity(msg, color = null) {
+      const log  = document.getElementById('activity-log');
+      if (!log) return;
+      const time = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.innerHTML = `<span class="log-time">${time}</span> <span style="${color?`color:${color}`:''}"> ${msg}</span>`;
+      log.insertBefore(entry, log.firstChild);
+    }
+
+    // ── Connection status indicator ───────────────────────────
+    function setConnectionStatus(online) {
+      const el = document.getElementById('rtc-status');
+      if (!el) return;
+      el.className = `rtc-indicator ${online ? '' : 'offline'}`;
+      el.innerHTML = `<div class="rtc-dot"></div><span>${online ? 'Live Sync ON' : 'Reconnecting…'}</span>`;
+    }
+
+    // ── Admin: final confirm ──────────────────────────────────
+    function openFinalConfirm() {
+      const locked = seatsData.filter(s => s.status === 'locked');
+      if (!locked.length) { toast('No seats selected by anyone yet!', 'error'); return; }
+
+      const total = locked.length * (showData?.price || 0);
+      document.getElementById('group-confirm-summary').innerHTML = `
+        <div class="price-row"><span>Movie</span><span>${showData.movie_title}</span></div>
+        <div class="price-row"><span>Show</span><span>${formatDate(showData.show_date)} · ${showData.show_time}</span></div>
+        <div class="price-row"><span>Total Seats</span><span>${locked.length}</span></div>
+        <div class="price-row"><span>Seats</span>
+          <span class="font-mono text-gold">${locked.map(s=>s.seat_label).join(' · ')}</span>
+        </div>
+        <div class="price-row total"><span>Total</span><span>${formatCurrency(total)}</span></div>
+      `;
+      document.getElementById('final-confirm-modal').classList.remove('hidden');
+    }
+
+    async function finalConfirm() {
+      const btn = document.getElementById('final-confirm-btn');
+      btn.textContent = 'Processing…'; btn.disabled = true;
+      try {
+        const booking = await GroupsAPI.confirm(sessionCode);
+        closeModal('final-confirm-modal');
+        document.getElementById('group-booking-code').textContent = booking.booking_code;
+        if (booking.qr_data) document.getElementById('group-qr').src = booking.qr_data;
+        document.getElementById('group-success-modal').classList.remove('hidden');
+      } catch (err) {
+        toast(err.message, 'error');
+        btn.textContent = 'Confirm & Pay'; btn.disabled = false;
+      }
+    }
+
+    function copyCode() {
+      navigator.clipboard.writeText(sessionCode).then(() => toast('Session code copied!', 'success'));
+    }
+
+    function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+    // Clean up on page unload
+    window.addEventListener('beforeunload', () => {
+      if (socket) socket.emit('leave_session', { sessionCode, userId: user.id, showId });
+    });
+
+    loadPageData();
+  </script>
+</body>
+</html>

@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CinemaBook — Select Seats</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .booking-layout {
+      display: grid;
+      grid-template-columns: 1fr 300px;
+      gap: 28px;
+      align-items: start;
+      padding: 32px 0;
+    }
+    .show-info-bar {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      margin-bottom: 28px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      align-items: center;
+    }
+    .show-info-item { display: flex; flex-direction: column; gap: 2px; }
+    .show-info-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; }
+    .show-info-value { font-weight: 700; font-size: 0.95rem; }
+    @media(max-width:900px){
+      .booking-layout{ grid-template-columns:1fr; }
+      .booking-panel{ position:static; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar" id="navbar"></nav>
+
+  <main class="container">
+    <div id="page-content">
+      <div class="loader" style="padding:120px 0"><div class="spinner"></div></div>
+    </div>
+  </main>
+
+  <!-- Booking Confirm Modal -->
+  <div class="modal-overlay hidden" id="confirm-modal">
+    <div class="modal">
+      <h3 class="modal-title">Confirm Booking</h3>
+      <div id="confirm-summary"></div>
+      <div class="divider"></div>
+      <div class="flex gap-12 mt-16" style="justify-content:flex-end">
+        <button class="btn btn-outline" onclick="closeModal('confirm-modal')">Cancel</button>
+        <button class="btn btn-primary btn-lg" id="pay-btn" onclick="confirmBooking()">
+          Pay &amp; Confirm
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Success Modal -->
+  <div class="modal-overlay hidden" id="success-modal">
+    <div class="modal" style="text-align:center">
+      <div style="font-size:4rem;margin-bottom:12px">🎉</div>
+      <h3 class="modal-title" style="text-align:center">Booking Confirmed!</h3>
+      <div id="success-code" class="history-code" style="font-size:1.2rem;margin:10px auto;display:inline-block"></div>
+      <div class="qr-section mt-16">
+        <img id="qr-img" src="" alt="QR Code" style="width:180px;height:180px" />
+        <p class="text-muted mt-8" style="font-size:0.8rem">Show this QR at the theater entrance</p>
+      </div>
+      <div class="flex gap-12 mt-16" style="justify-content:center;flex-wrap:wrap">
+        <button class="btn btn-outline" onclick="window.location.href='/history.html'">My Tickets</button>
+        <button class="btn btn-primary" onclick="window.location.href='/movies.html'">Book More</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Group Booking Modal -->
+  <div class="modal-overlay hidden" id="group-modal">
+    <div class="modal">
+      <h3 class="modal-title">👥 Start Group Booking</h3>
+      <p class="text-muted mb-16" style="font-size:0.9rem">
+        Create a shared session. Share the code with friends so everyone can pick their seats together in real-time.
+      </p>
+      <div id="group-code-display" class="hidden group-code-box">
+        <div class="text-muted" style="font-size:0.85rem">Share this code with your group</div>
+        <div class="session-code" id="modal-session-code">------</div>
+        <button class="btn btn-ghost btn-sm" onclick="copyCode()">📋 Copy Code</button>
+        <p class="copy-hint mt-8">Code valid for 30 minutes</p>
+      </div>
+      <div id="group-start-btn-wrap">
+        <button class="btn btn-gold btn-block btn-lg" onclick="createGroupSession()">
+          🚀 Create Group Session
+        </button>
+      </div>
+      <button class="btn btn-outline btn-block mt-12"
+              onclick="openGroupRoom()" id="go-group-room-btn" style="display:none">
+        Enter Group Room →
+      </button>
+      <button class="btn btn-ghost btn-block mt-8" onclick="closeModal('group-modal')">Close</button>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    if (!requireAuth()) throw new Error('Not auth');
+    renderNavbar('movies');
+
+    const params  = new URLSearchParams(window.location.search);
+    const showId  = params.get('show');
+    const movieId = params.get('movie');
+    if (!showId) window.location.href = '/movies.html';
+
+    const user = Auth.getUser();
+    let showData, seatsData;
+    let selectedSeats = new Set(); // seat labels user has selected
+    let groupSessionCode = null;
+
+    // ── Load seats ────────────────────────────────────────────
+    async function loadSeats() {
+      try {
+        const data = await MoviesAPI.seats(showId);
+        showData  = data.show;
+        seatsData = data.seats;
+        renderPage();
+      } catch (err) {
+        document.getElementById('page-content').innerHTML =
+          `<div class="empty-state"><div class="empty-icon">⚠️</div><p>${err.message}</p></div>`;
+      }
+    }
+
+    // ── Render full page ──────────────────────────────────────
+    function renderPage() {
+      document.getElementById('page-content').innerHTML = `
+        <div class="show-info-bar">
+          <div class="show-info-item">
+            <span class="show-info-label">Movie</span>
+            <span class="show-info-value">${showData.movie_title}</span>
+          </div>
+          <div class="show-info-item">
+            <span class="show-info-label">Theater</span>
+            <span class="show-info-value">${showData.theater_name}</span>
+          </div>
+          <div class="show-info-item">
+            <span class="show-info-label">Date</span>
+            <span class="show-info-value">${formatDate(showData.show_date)}</span>
+          </div>
+          <div class="show-info-item">
+            <span class="show-info-label">Time</span>
+            <span class="show-info-value">${showData.show_time}</span>
+          </div>
+          <div class="show-info-item">
+            <span class="show-info-label">Price</span>
+            <span class="show-info-value text-gold">${formatCurrency(showData.price)} / seat</span>
+          </div>
+          <button class="btn btn-outline btn-sm" style="margin-left:auto" onclick="openGroupModal()">
+            👥 Group Booking
+          </button>
+        </div>
+
+        <div class="booking-layout">
+          <div>
+            <!-- Screen -->
+            <div style="text-align:center;margin-bottom:40px">
+              <div class="seat-screen"></div>
+            </div>
+
+            <!-- Seat Grid -->
+            <div class="seat-grid-wrap">
+              <div class="seat-grid" id="seat-grid"></div>
+            </div>
+
+            <!-- Legend -->
+            <div class="legend mt-24">
+              <div class="legend-item">
+                <div class="legend-seat available"></div><span>Available</span>
+              </div>
+              <div class="legend-item">
+                <div class="legend-seat selected"></div><span>Your selection</span>
+              </div>
+              <div class="legend-item">
+                <div class="legend-seat booked"></div><span>Booked</span>
+              </div>
+              <div class="legend-item">
+                <div class="legend-seat locked"></div><span>Temporarily held</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Summary Panel -->
+          <div class="booking-panel">
+            <div class="panel-title">Your Seats</div>
+            <div class="seat-chips" id="selected-chips">
+              <span class="text-muted" style="font-size:0.85rem">Click seats to select</span>
+            </div>
+            <div class="divider"></div>
+            <div class="price-row">
+              <span>Seats selected</span>
+              <span id="seat-count">0</span>
+            </div>
+            <div class="price-row">
+              <span>Price per seat</span>
+              <span>${formatCurrency(showData.price)}</span>
+            </div>
+            <div class="price-row total">
+              <span>Total</span>
+              <span id="total-price">${formatCurrency(0)}</span>
+            </div>
+            <button class="btn btn-primary btn-block btn-lg mt-16" id="book-btn"
+                    onclick="openConfirmModal()" disabled>
+              Proceed to Book
+            </button>
+          </div>
+        </div>
+      `;
+      renderSeatGrid();
+    }
+
+    // ── Build seat grid ───────────────────────────────────────
+    function renderSeatGrid() {
+      const grid = document.getElementById('seat-grid');
+      // Group by row
+      const byRow = seatsData.reduce((acc, s) => {
+        if (!acc[s.row_label]) acc[s.row_label] = [];
+        acc[s.row_label].push(s);
+        return acc;
+      }, {});
+
+      grid.innerHTML = Object.entries(byRow).sort(([a],[b]) => a.localeCompare(b)).map(([row, seats]) => `
+        <div class="seat-row">
+          <div class="row-label">${row}</div>
+          ${seats.sort((a,b) => a.col_num - b.col_num).map(s => seatHTML(s)).join('')}
+        </div>
+      `).join('');
+    }
+
+    function seatHTML(seat) {
+      let cls = 'seat ';
+      let onclick = '';
+      let title = seat.seat_label;
+
+      if (seat.status === 'booked') {
+        cls += 'booked'; title = 'Already booked';
+      } else if (selectedSeats.has(seat.seat_label)) {
+        cls += 'selected'; onclick = `onclick="toggleSeat('${seat.seat_label}')"`;
+      } else if (seat.status === 'locked') {
+        cls += 'locked'; title = 'Held by another user';
+      } else {
+        cls += 'available'; onclick = `onclick="toggleSeat('${seat.seat_label}')"`;
+      }
+
+      return `<div class="${cls}" id="seat-${seat.seat_label}"
+                   title="${title}" ${onclick} data-label="${seat.seat_label}">
+              </div>`;
+    }
+
+    // ── Toggle a seat selection ───────────────────────────────
+    async function toggleSeat(label) {
+      const seat = seatsData.find(s => s.seat_label === label);
+      if (!seat || seat.status === 'booked') return;
+
+      if (selectedSeats.has(label)) {
+        // Deselect
+        selectedSeats.delete(label);
+        seat.status = 'available';
+        // Release lock via API (fire-and-forget)
+        BookingsAPI.lock({ showId, seatLabel: label, action: 'unlock' }).catch(() => {});
+      } else {
+        // Select — try to lock
+        try {
+          const result = await BookingsAPI.lock({ showId, seatLabel: label, action: 'lock', groupSessionId: groupSessionCode });
+          if (!result.ok) { toast(result.error || 'Could not select this seat', 'error'); return; }
+          selectedSeats.add(label);
+          seat.status = 'locked';
+        } catch (err) {
+          toast(err.message, 'error');
+          return;
+        }
+      }
+
+      refreshSeatUI(label);
+      updateSummaryPanel();
+    }
+
+    // Refresh single seat's appearance
+    function refreshSeatUI(label) {
+      const el = document.getElementById(`seat-${label}`);
+      if (!el) return;
+      const seat = seatsData.find(s => s.seat_label === label);
+      if (!seat) return;
+
+      el.className = 'seat ' + (
+        seat.status === 'booked' ? 'booked' :
+        selectedSeats.has(label)  ? 'selected' :
+        seat.status === 'locked'  ? 'locked' :
+        'available'
+      );
+      el.onclick = (seat.status === 'available' || selectedSeats.has(label))
+        ? () => toggleSeat(label) : null;
+    }
+
+    // ── Update summary panel ──────────────────────────────────
+    function updateSummaryPanel() {
+      const arr   = [...selectedSeats];
+      const total = arr.length * showData.price;
+
+      document.getElementById('seat-count').textContent  = arr.length;
+      document.getElementById('total-price').textContent = formatCurrency(total);
+      document.getElementById('book-btn').disabled = arr.length === 0;
+
+      const chips = document.getElementById('selected-chips');
+      chips.innerHTML = arr.length
+        ? arr.map(l => `<div class="seat-chip">${l}</div>`).join('')
+        : `<span class="text-muted" style="font-size:0.85rem">Click seats to select</span>`;
+    }
+
+    // ── Confirm modal ─────────────────────────────────────────
+    function openConfirmModal() {
+      const arr   = [...selectedSeats];
+      const total = arr.length * showData.price;
+
+      document.getElementById('confirm-summary').innerHTML = `
+        <div class="price-row"><span>Movie</span><span>${showData.movie_title}</span></div>
+        <div class="price-row"><span>Show</span><span>${formatDate(showData.show_date)} • ${showData.show_time}</span></div>
+        <div class="price-row"><span>Theater</span><span>${showData.theater_name}</span></div>
+        <div class="price-row"><span>Seats</span><span class="font-mono text-gold">${arr.join(' • ')}</span></div>
+        <div class="price-row total"><span>Total Amount</span><span>${formatCurrency(total)}</span></div>
+      `;
+      document.getElementById('confirm-modal').classList.remove('hidden');
+    }
+
+    async function confirmBooking() {
+      const btn = document.getElementById('pay-btn');
+      btn.textContent = 'Processing…'; btn.disabled = true;
+      try {
+        const booking = await BookingsAPI.create({
+          showId: parseInt(showId),
+          seats: [...selectedSeats],
+          groupSessionId: groupSessionCode
+        });
+        closeModal('confirm-modal');
+        showSuccess(booking);
+      } catch (err) {
+        toast(err.message, 'error');
+        btn.textContent = 'Pay & Confirm'; btn.disabled = false;
+      }
+    }
+
+    function showSuccess(booking) {
+      document.getElementById('success-code').textContent = booking.booking_code;
+      if (booking.qr_data) document.getElementById('qr-img').src = booking.qr_data;
+      document.getElementById('success-modal').classList.remove('hidden');
+    }
+
+    // ── Group Booking ─────────────────────────────────────────
+    function openGroupModal() {
+      document.getElementById('group-modal').classList.remove('hidden');
+    }
+
+    async function createGroupSession() {
+      try {
+        const data = await GroupsAPI.create(parseInt(showId));
+        groupSessionCode = data.session_code;
+        document.getElementById('modal-session-code').textContent = groupSessionCode;
+        document.getElementById('group-code-display').classList.remove('hidden');
+        document.getElementById('group-start-btn-wrap').classList.add('hidden');
+        document.getElementById('go-group-room-btn').style.display = 'block';
+        toast(`Group session created! Code: ${groupSessionCode}`, 'success');
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    }
+
+    function copyCode() {
+      navigator.clipboard.writeText(groupSessionCode).then(() => toast('Code copied!', 'success'));
+    }
+
+    function openGroupRoom() {
+      closeModal('group-modal');
+      window.location.href = `/group.html?session=${groupSessionCode}&show=${showId}`;
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.add('hidden');
+    }
+
+    // Close modals on overlay click
+    ['confirm-modal','success-modal','group-modal'].forEach(id => {
+      document.getElementById(id).addEventListener('click', function(e) {
+        if (e.target === this && id !== 'success-modal') closeModal(id);
+      });
+    });
+
+    loadSeats();
+  </script>
+</body>
+</html>

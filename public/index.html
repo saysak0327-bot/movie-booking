@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CinemaBook — Login</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="auth-page">
+    <div class="auth-card">
+      <div class="auth-logo">CINEMA<span>BOOK</span></div>
+      <p class="auth-tagline">Your ultimate movie ticket experience 🎬</p>
+
+      <!-- Tab Toggle -->
+      <div class="auth-tabs">
+        <div class="auth-tab active" id="tab-login"    onclick="switchTab('login')">Login</div>
+        <div class="auth-tab"        id="tab-register" onclick="switchTab('register')">Register</div>
+      </div>
+
+      <!-- Login Form -->
+      <div id="form-login">
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" id="login-email" class="form-input" placeholder="you@example.com" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" id="login-password" class="form-input" placeholder="••••••••" />
+        </div>
+        <div id="login-error" class="form-error" style="margin-bottom:12px"></div>
+        <button class="btn btn-primary btn-block btn-lg" onclick="doLogin()">
+          <span id="login-btn-text">Login</span>
+        </button>
+        <p class="text-center text-muted mt-16" style="font-size:0.8rem">
+          Demo: <strong>arjun@example.com</strong> / <strong>password123</strong>
+        </p>
+      </div>
+
+      <!-- Register Form -->
+      <div id="form-register" class="hidden">
+        <div class="form-group">
+          <label class="form-label">Full Name</label>
+          <input type="text" id="reg-name" class="form-input" placeholder="Arjun Sharma" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" id="reg-email" class="form-input" placeholder="you@example.com" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" id="reg-password" class="form-input" placeholder="Min. 6 characters" />
+        </div>
+        <div id="reg-error" class="form-error" style="margin-bottom:12px"></div>
+        <button class="btn btn-gold btn-block btn-lg" onclick="doRegister()">
+          <span id="reg-btn-text">Create Account</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    redirectIfLoggedIn();
+
+    function switchTab(tab) {
+      document.getElementById('form-login').classList.toggle('hidden', tab !== 'login');
+      document.getElementById('form-register').classList.toggle('hidden', tab !== 'register');
+      document.getElementById('tab-login').classList.toggle('active', tab === 'login');
+      document.getElementById('tab-register').classList.toggle('active', tab === 'register');
+    }
+
+    // Allow Enter key to submit
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      const isRegister = !document.getElementById('form-register').classList.contains('hidden');
+      isRegister ? doRegister() : doLogin();
+    });
+
+    async function doLogin() {
+      const email    = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+      const errEl    = document.getElementById('login-error');
+      const btnText  = document.getElementById('login-btn-text');
+      errEl.textContent = '';
+
+      if (!email || !password) { errEl.textContent = 'All fields required'; return; }
+
+      btnText.textContent = 'Logging in…';
+      try {
+        const data = await AuthAPI.login({ email, password });
+        Auth.setToken(data.token);
+        Auth.setUser(data.user);
+        window.location.href = '/movies.html';
+      } catch (err) {
+        errEl.textContent = err.message;
+        btnText.textContent = 'Login';
+      }
+    }
+
+    async function doRegister() {
+      const name     = document.getElementById('reg-name').value.trim();
+      const email    = document.getElementById('reg-email').value.trim();
+      const password = document.getElementById('reg-password').value;
+      const errEl    = document.getElementById('reg-error');
+      const btnText  = document.getElementById('reg-btn-text');
+      errEl.textContent = '';
+
+      if (!name || !email || !password) { errEl.textContent = 'All fields required'; return; }
+
+      btnText.textContent = 'Creating account…';
+      try {
+        const data = await AuthAPI.register({ name, email, password });
+        Auth.setToken(data.token);
+        Auth.setUser(data.user);
+        window.location.href = '/movies.html';
+      } catch (err) {
+        errEl.textContent = err.message;
+        btnText.textContent = 'Create Account';
+      }
+    }
+  </script>
+</body>
+</html>

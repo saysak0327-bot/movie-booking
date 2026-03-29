@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CinemaBook — My Tickets</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <nav class="navbar" id="navbar"></nav>
+
+  <main class="container section">
+    <h1 style="font-family:var(--font-display);font-size:2.5rem;margin-bottom:24px">
+      🎟 My Tickets
+    </h1>
+
+    <div id="bookings-list">
+      <div class="loader"><div class="spinner"></div></div>
+    </div>
+  </main>
+
+  <!-- QR Modal -->
+  <div class="modal-overlay hidden" id="qr-modal">
+    <div class="modal" style="max-width:360px;text-align:center">
+      <div class="flex" style="justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h3 class="modal-title" style="margin:0">🎫 Your Ticket</h3>
+        <span class="modal-close" onclick="closeModal()">✕</span>
+      </div>
+      <div id="qr-modal-content"></div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    if (!requireAuth()) throw new Error('Not auth');
+    renderNavbar('history');
+
+    async function loadBookings() {
+      try {
+        const bookings = await BookingsAPI.mine();
+        renderBookings(bookings);
+      } catch (err) {
+        document.getElementById('bookings-list').innerHTML =
+          `<div class="empty-state"><div class="empty-icon">⚠️</div><p>${err.message}</p></div>`;
+      }
+    }
+
+    function renderBookings(bookings) {
+      const el = document.getElementById('bookings-list');
+
+      if (!bookings.length) {
+        el.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">🎬</div>
+            <div class="empty-title">No bookings yet</div>
+            <p class="text-muted mb-24">Start by exploring movies and booking your seats!</p>
+            <a href="/movies.html" class="btn btn-primary btn-lg">Browse Movies</a>
+          </div>`;
+        return;
+      }
+
+      el.innerHTML = bookings.map(b => `
+        <div class="history-card">
+          <img class="history-poster"
+               src="${b.movie_poster || ''}"
+               onerror="this.src='https://via.placeholder.com/70x100/12121f/f5c518?text=🎬'"
+               alt="${b.movie_title}" />
+
+          <div>
+            <div class="history-movie">${b.movie_title}</div>
+            <div class="history-detail">🏛 ${b.theater_name} · ${b.theater_location}</div>
+            <div class="history-detail">📅 ${formatDate(b.show_date)} · ${b.show_time}</div>
+            <div class="history-detail">🪑 Seats: <strong class="font-mono text-gold">${b.seats_json.join(', ')}</strong></div>
+            <div class="history-detail">💰 ${formatCurrency(b.total_price)}</div>
+            ${b.group_session_id ? `<div class="history-detail">👥 Group Booking — ${b.group_session_id}</div>` : ''}
+            <div class="history-code">${b.booking_code}</div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+            <span class="booking-status ${b.status}">${b.status}</span>
+            <span class="text-muted" style="font-size:0.78rem">${new Date(b.created_at).toLocaleDateString('en-IN')}</span>
+            ${b.qr_data ? `<button class="btn btn-outline btn-sm" onclick="showQR(${b.id})">📱 QR Code</button>` : ''}
+          </div>
+        </div>
+      `).join('');
+
+      // Store for QR lookup
+      window._bookings = bookings;
+    }
+
+    function showQR(bookingId) {
+      const b = window._bookings.find(x => x.id === bookingId);
+      if (!b) return;
+
+      document.getElementById('qr-modal-content').innerHTML = `
+        <div style="margin-bottom:12px">
+          <div style="font-family:var(--font-display);font-size:1.4rem">${b.movie_title}</div>
+          <div class="text-muted" style="font-size:0.85rem">${b.theater_name}</div>
+          <div class="text-muted" style="font-size:0.85rem">${formatDate(b.show_date)} · ${b.show_time}</div>
+        </div>
+        <img src="${b.qr_data}" alt="QR Code"
+             style="width:200px;height:200px;margin:0 auto;border:3px solid var(--gold);
+                    border-radius:8px;padding:6px;background:white" />
+        <div class="history-code" style="margin:12px auto;display:inline-block">${b.booking_code}</div>
+        <div class="text-muted" style="font-size:0.78rem;margin-top:8px">
+          Show this QR code at the theater entrance
+        </div>
+      `;
+      document.getElementById('qr-modal').classList.remove('hidden');
+    }
+
+    function closeModal() {
+      document.getElementById('qr-modal').classList.add('hidden');
+    }
+
+    document.getElementById('qr-modal').addEventListener('click', function(e) {
+      if (e.target === this) closeModal();
+    });
+
+    loadBookings();
+  </script>
+</body>
+</html>

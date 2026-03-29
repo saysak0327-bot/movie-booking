@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CinemaBook — Movie</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .movie-detail-hero {
+      position: relative;
+      padding: 40px 0;
+      background: linear-gradient(90deg, var(--bg) 40%, transparent),
+                  radial-gradient(ellipse at 70% 50%, rgba(245,197,24,0.06) 0%, transparent 60%);
+    }
+    .movie-detail-layout {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 32px;
+      align-items: start;
+    }
+    .movie-detail-poster {
+      width: 220px;
+      aspect-ratio: 2/3;
+      object-fit: cover;
+      border-radius: var(--radius);
+      border: 2px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+    .movie-detail-title { margin-bottom: 12px; }
+    .movie-detail-meta  { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+    .movie-detail-desc  { color: var(--text-muted); line-height: 1.7; max-width: 600px; }
+    @media (max-width: 640px) {
+      .movie-detail-layout { grid-template-columns: 1fr; }
+      .movie-detail-poster { width: 140px; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar" id="navbar"></nav>
+
+  <main class="container">
+    <div id="page-content">
+      <div class="loader" style="padding:100px 0"><div class="spinner"></div></div>
+    </div>
+  </main>
+
+  <script src="/js/api.js"></script>
+  <script>
+    if (!requireAuth()) throw new Error('Not auth');
+    renderNavbar('movies');
+
+    const params  = new URLSearchParams(window.location.search);
+    const movieId = params.get('id');
+    if (!movieId) window.location.href = '/movies.html';
+
+    let movie, allShows;
+    const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+    // Group shows by date
+    function groupByDate(shows) {
+      return shows.reduce((acc, s) => {
+        if (!acc[s.show_date]) acc[s.show_date] = [];
+        acc[s.show_date].push(s);
+        return acc;
+      }, {});
+    }
+
+    function renderPage() {
+      const grouped   = groupByDate(allShows);
+      const dates     = Object.keys(grouped).sort();
+      const firstDate = dates[0];
+
+      document.getElementById('page-content').innerHTML = `
+        <!-- Movie Hero -->
+        <div class="movie-detail-hero section">
+          <div class="movie-detail-layout">
+            <img class="movie-detail-poster"
+                 src="${movie.poster || ''}"
+                 onerror="this.src='https://via.placeholder.com/220x330/12121f/f5c518?text=🎬'"
+                 alt="${movie.title}" />
+            <div>
+              <h1 class="movie-detail-title">${movie.title}</h1>
+              <div class="movie-detail-meta">
+                <span class="chip">⭐ ${movie.rating.toFixed(1)} / 10</span>
+                <span class="chip">🎭 ${movie.genre || 'Drama'}</span>
+                <span class="chip">🌐 ${movie.language}</span>
+                <span class="chip">⏱ ${movie.duration} mins</span>
+              </div>
+              <p class="movie-detail-desc">${movie.description || 'No description available.'}</p>
+              <div class="mt-16 flex gap-8" style="flex-wrap:wrap">
+                <span class="text-muted" style="font-size:0.85rem">
+                  ${starRating(movie.rating)} &nbsp;(${movie.rating.toFixed(1)}/10)
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Date Tabs -->
+        <div class="section">
+          <h2 class="section-title">Select Date</h2>
+          <div class="date-tabs mb-24" id="date-tabs">
+            ${dates.map(d => {
+              const dd = new Date(d + 'T00:00:00');
+              const isToday = d === new Date().toISOString().split('T')[0];
+              return `
+                <div class="date-tab ${d===firstDate?'active':''}" onclick="selectDate('${d}')">
+                  <div class="date-tab-day">${isToday ? 'Today' : DAYS[dd.getDay()]}</div>
+                  <div class="date-tab-date">${dd.getDate()} ${dd.toLocaleString('default',{month:'short'})}</div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+
+          <!-- Shows for selected date -->
+          <h2 class="section-title">Select Show</h2>
+          <div id="shows-container">
+            ${renderShowsForDate(firstDate, grouped[firstDate] || [])}
+          </div>
+        </div>
+      `;
+
+      // Store grouped for re-use
+      window._grouped = grouped;
+    }
+
+    function renderShowsForDate(date, shows) {
+      if (!shows.length) return `<div class="text-muted">No shows on this date.</div>`;
+      // Group by theater
+      const byTheater = shows.reduce((acc, s) => {
+        const key = s.theater_id;
+        if (!acc[key]) acc[key] = { name: s.theater_name, location: s.theater_location, shows: [] };
+        acc[key].shows.push(s);
+        return acc;
+      }, {});
+
+      return Object.values(byTheater).map(t => `
+        <div style="margin-bottom:28px">
+          <div style="margin-bottom:12px">
+            <span style="font-weight:700">${t.name}</span>
+            <span class="text-muted" style="font-size:0.85rem; margin-left:8px">📍 ${t.location}</span>
+          </div>
+          <div class="show-pills">
+            ${t.shows.map(s => `
+              <div class="show-pill" onclick="goToBooking(${s.id})">
+                <div class="show-pill-time">${s.show_time}</div>
+                <div class="show-pill-price">${formatCurrency(s.price)}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function selectDate(date) {
+      // Update tab active state
+      document.querySelectorAll('.date-tab').forEach(el => {
+        el.classList.toggle('active', el.getAttribute('onclick').includes(date));
+      });
+      const shows = window._grouped[date] || [];
+      document.getElementById('shows-container').innerHTML = renderShowsForDate(date, shows);
+    }
+
+    function goToBooking(showId) {
+      window.location.href = `/booking.html?show=${showId}&movie=${movieId}`;
+    }
+
+    async function init() {
+      try {
+        [movie, allShows] = await Promise.all([MoviesAPI.get(movieId), MoviesAPI.shows(movieId)]);
+        renderPage();
+      } catch (err) {
+        document.getElementById('page-content').innerHTML =
+          `<div class="empty-state"><div class="empty-icon">⚠️</div><p>${err.message}</p></div>`;
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

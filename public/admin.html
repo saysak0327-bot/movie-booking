@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CinemaBook — Admin</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    .modal-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.72);
+      z-index: 999;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      width: 100%;
+      max-width: 640px;
+      max-height: 90vh;
+      overflow-y: auto;
+      padding: 32px;
+      position: relative;
+      animation: slideUp 0.22s ease;
+    }
+    @keyframes slideUp {
+      from { opacity:0; transform:translateY(24px); }
+      to   { opacity:1; transform:translateY(0); }
+    }
+    .modal-close {
+      position: absolute; top: 16px; right: 20px;
+      background: none; border: none;
+      color: var(--text-muted); font-size: 1.4rem;
+      cursor: pointer; line-height: 1;
+      transition: color 0.15s;
+    }
+    .modal-close:hover { color: var(--text); }
+    .modal-title {
+      font-family: var(--font-display);
+      font-size: 1.5rem;
+      margin-bottom: 24px;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .form-grid .full { grid-column: 1 / -1; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-label {
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+    }
+    .form-input {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-size: 0.92rem;
+      padding: 10px 12px;
+      transition: border-color 0.15s;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .form-input:focus { outline: none; border-color: var(--gold); }
+    textarea.form-input { resize: vertical; min-height: 80px; font-family: inherit; }
+    .poster-preview {
+      width: 100%;
+      height: 200px;
+      object-fit: contain;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg2);
+      display: block;
+    }
+    .preview-wrap { position: relative; }
+    .preview-label {
+      position: absolute; top: 8px; left: 8px;
+      font-size: 0.68rem; font-weight: 700;
+      background: var(--gold); color: #000;
+      padding: 2px 6px; border-radius: 3px;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .mgmt-table { width: 100%; border-collapse: collapse; }
+    .mgmt-table th {
+      padding: 10px 12px;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .mgmt-table td {
+      padding: 12px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .mgmt-table tr:last-child td { border-bottom: none; }
+    .mgmt-table tbody tr:hover td { background: var(--bg2); transition: background 0.12s; }
+    .thumb {
+      width: 44px; height: 60px;
+      object-fit: cover; object-position: top;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: var(--bg2);
+      display: block;
+    }
+    .action-btn {
+      border: none; cursor: pointer;
+      font-size: 0.78rem; font-weight: 600;
+      padding: 5px 12px; border-radius: 6px;
+      transition: opacity 0.15s;
+      white-space: nowrap;
+    }
+    .action-btn:hover { opacity: 0.75; }
+    .btn-edit   { background: var(--gold-dim); color: var(--gold); }
+    .btn-delete { background: rgba(239,68,68,0.15); color: #f87171; }
+    .badge-active   { background: rgba(34,197,94,0.15); color: #4ade80; padding: 3px 8px; border-radius: 20px; font-size: 0.75rem; font-weight:600; }
+    .badge-inactive { background: rgba(239,68,68,0.12); color: #f87171; padding: 3px 8px; border-radius: 20px; font-size: 0.75rem; font-weight:600; }
+    .tab-actions { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+    .tab-actions h3 { font-family: var(--font-display); font-size: 1.1rem; flex: 1; }
+    .confirm-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.8);
+      z-index: 1100;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .confirm-overlay.open { display: flex; }
+    .confirm-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      max-width: 400px;
+      width: 100%;
+      text-align: center;
+    }
+    .confirm-box h3 { font-family: var(--font-display); font-size: 1.2rem; margin-bottom: 10px; }
+    .confirm-box p  { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 24px; }
+    .confirm-actions { display: flex; gap: 12px; justify-content: center; }
+    @media (max-width: 580px) {
+      .form-grid { grid-template-columns: 1fr; }
+      .form-grid .full { grid-column: 1; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar" id="navbar"></nav>
+
+  <main class="container section">
+    <div class="flex gap-12 mb-24" style="align-items:center;flex-wrap:wrap">
+      <h1 style="font-family:var(--font-display);font-size:2.5rem">⚙️ Admin Panel</h1>
+      <span class="chip text-gold" style="background:var(--gold-dim);margin-left:auto">👑 Administrator</span>
+    </div>
+
+    <div class="admin-stats" id="stats-row">
+      <div class="loader"><div class="spinner"></div></div>
+    </div>
+
+    <div class="auth-tabs mb-24" style="max-width:400px">
+      <div class="auth-tab active" onclick="switchTab('bookings')">Bookings</div>
+      <div class="auth-tab" onclick="switchTab('movies')">Movies</div>
+      <div class="auth-tab" onclick="switchTab('sessions')">Group Sessions</div>
+    </div>
+
+    <div id="admin-content">
+      <div class="loader"><div class="spinner"></div></div>
+    </div>
+  </main>
+
+  <!-- ADD / EDIT MOVIE MODAL -->
+  <div class="modal-overlay" id="movie-modal" onclick="handleOverlayClick(event)">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal()">✕</button>
+      <div class="modal-title" id="modal-title">➕ Add Movie</div>
+
+      <div class="form-grid">
+        <div class="form-group full preview-wrap">
+          <span class="preview-label">Poster Preview</span>
+          <img id="poster-preview" class="poster-preview"
+               src="https://via.placeholder.com/640x200/12121f/f5c518?text=Paste+a+poster+URL+below"
+               alt="Poster preview" />
+        </div>
+
+        <div class="form-group full">
+          <label class="form-label">Movie Title *</label>
+          <input id="f-title" class="form-input" type="text" placeholder="e.g. Kalki 2898 AD" />
+        </div>
+
+        <div class="form-group full">
+          <label class="form-label">Description</label>
+          <textarea id="f-desc" class="form-input" placeholder="Short synopsis of the film..."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Genre</label>
+          <input id="f-genre" class="form-input" type="text" placeholder="e.g. Action / Drama" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Language</label>
+          <select id="f-lang" class="form-input">
+            <option>Hindi</option>
+            <option>English</option>
+            <option>Telugu</option>
+            <option>Tamil</option>
+            <option>Malayalam</option>
+            <option>Kannada</option>
+            <option>Bengali</option>
+            <option>Punjabi</option>
+            <option>Marathi</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Duration (minutes)</label>
+          <input id="f-duration" class="form-input" type="number" min="1" placeholder="e.g. 150" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Rating (0–10)</label>
+          <input id="f-rating" class="form-input" type="number" min="0" max="10" step="0.1" placeholder="e.g. 8.2" />
+        </div>
+
+        <div class="form-group full">
+          <label class="form-label">Poster Image URL</label>
+          <input id="f-poster" class="form-input" type="url"
+                 placeholder="https://upload.wikimedia.org/…/poster.jpg"
+                 oninput="previewPoster(this.value)" />
+        </div>
+
+        <div class="form-group full">
+          <label class="form-label">Trailer URL (YouTube embed or any video link)</label>
+          <input id="f-trailer" class="form-input" type="url"
+                 placeholder="https://www.youtube.com/embed/…" />
+        </div>
+
+        <div class="form-group" id="active-group" style="display:none">
+          <label class="form-label">Listing Status</label>
+          <select id="f-active" class="form-input">
+            <option value="1">Active — visible in listings</option>
+            <option value="0">Hidden — removed from listings</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flex gap-12 mt-24" style="justify-content:flex-end">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" id="modal-submit" onclick="submitMovie()">Add Movie</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- DELETE CONFIRM -->
+  <div class="confirm-overlay" id="confirm-overlay">
+    <div class="confirm-box">
+      <div style="font-size:2.5rem;margin-bottom:12px">🗑️</div>
+      <h3>Remove Movie?</h3>
+      <p id="confirm-msg">This will hide the movie from all listings.</p>
+      <div class="confirm-actions">
+        <button class="btn btn-secondary" onclick="closeConfirm()">Cancel</button>
+        <button class="btn" style="background:#ef4444;color:#fff;font-weight:700" id="confirm-ok">Remove</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    if (!requireAuth()) throw new Error('Not auth');
+    const currentUser = Auth.getUser();
+    if (currentUser?.role !== 'admin') {
+      toast('Admin access required', 'error');
+      setTimeout(() => window.location.href = '/movies.html', 1500);
+    }
+    renderNavbar('admin');
+
+    let activeTab = 'bookings';
+    let allData   = {};
+    let editingId = null;
+
+    async function loadAdminData() {
+      try {
+        const [movies, bookings] = await Promise.all([
+          MoviesAPI.list(),
+          BookingsAPI.mine()
+        ]);
+        allData = { movies, bookings };
+        renderStats();
+        renderTab(activeTab);
+      } catch (err) {
+        document.getElementById('admin-content').innerHTML =
+          `<div class="empty-state"><div class="empty-icon">⚠️</div><p>${err.message}</p></div>`;
+      }
+    }
+
+    function renderStats() {
+      document.getElementById('stats-row').innerHTML = `
+        <div class="stat-card">
+          <div class="stat-value">${allData.movies?.length || 0}</div>
+          <div class="stat-label">Movies</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${allData.bookings?.length || 0}</div>
+          <div class="stat-label">Bookings</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">₹${(allData.bookings?.reduce((s,b)=>s+b.total_price,0)||0).toLocaleString('en-IN')}</div>
+          <div class="stat-label">Revenue</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${allData.bookings?.reduce((s,b)=>s+b.seats_json.length,0)||0}</div>
+          <div class="stat-label">Seats Sold</div>
+        </div>
+      `;
+    }
+
+    function switchTab(tab) {
+      activeTab = tab;
+      document.querySelectorAll('.auth-tab').forEach((el, i) => {
+        el.classList.toggle('active', ['bookings','movies','sessions'][i] === tab);
+      });
+      renderTab(tab);
+    }
+
+    function renderTab(tab) {
+      const content = document.getElementById('admin-content');
+      if (tab === 'bookings')    renderBookingsTable(content);
+      else if (tab === 'movies') renderMoviesManager(content);
+      else                       renderSessionsNote(content);
+    }
+
+    // ── Bookings ──────────────────────────────────────────────────────────────
+    function renderBookingsTable(el) {
+      const bookings = allData.bookings || [];
+      if (!bookings.length) {
+        el.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">No bookings yet</div></div>`;
+        return;
+      }
+      el.innerHTML = `
+        <div style="overflow-x:auto;background:var(--card);border:1px solid var(--border);border-radius:var(--radius)">
+          <table class="mgmt-table">
+            <thead><tr>
+              <th>Code</th><th>Movie</th><th>Seats</th><th>Amount</th><th>Status</th><th>Date</th>
+            </tr></thead>
+            <tbody>
+              ${bookings.map(b => `
+                <tr>
+                  <td style="font-family:var(--font-mono);color:var(--gold);font-size:0.85rem">${b.booking_code}</td>
+                  <td>${escHtml(b.movie_title)}</td>
+                  <td style="font-family:var(--font-mono);font-size:0.82rem">${b.seats_json.join(', ')}</td>
+                  <td style="font-weight:700">${formatCurrency(b.total_price)}</td>
+                  <td><span class="booking-status ${b.status}">${b.status}</span></td>
+                  <td style="color:var(--text-muted);font-size:0.82rem">${new Date(b.created_at).toLocaleDateString('en-IN')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    }
+
+    // ── Movies manager ────────────────────────────────────────────────────────
+    function renderMoviesManager(el) {
+      const movies = allData.movies || [];
+      el.innerHTML = `
+        <div class="tab-actions">
+          <h3>🎬 Movie Catalogue</h3>
+          <button class="btn btn-primary" onclick="openAddModal()" style="font-size:0.85rem;padding:8px 18px">
+            ➕ Add Movie
+          </button>
+        </div>
+        ${movies.length === 0
+          ? `<div class="empty-state">
+               <div class="empty-icon">🎬</div>
+               <div class="empty-title">No movies yet</div>
+               <p class="text-muted">Click "Add Movie" to get started</p>
+             </div>`
+          : `<div style="overflow-x:auto;background:var(--card);border:1px solid var(--border);border-radius:var(--radius)">
+               <table class="mgmt-table">
+                 <thead><tr>
+                   <th>Poster</th><th>Title</th><th>Genre</th><th>Lang</th>
+                   <th>Duration</th><th>Rating</th><th>Status</th><th>Actions</th>
+                 </tr></thead>
+                 <tbody>
+                   ${movies.map(m => `
+                     <tr>
+                       <td>
+                         <img class="thumb"
+                              src="${escHtml(m.poster || '')}"
+                              onerror="this.src='https://via.placeholder.com/44x60/12121f/f5c518?text=🎬'"
+                              alt="${escHtml(m.title)}" />
+                       </td>
+                       <td>
+                         <div style="font-weight:600;font-size:0.92rem;max-width:180px">${escHtml(m.title)}</div>
+                         ${m.trailer_url
+                           ? `<a href="${escHtml(m.trailer_url)}" target="_blank" rel="noopener"
+                                style="font-size:0.72rem;color:var(--gold);text-decoration:none">▶ Trailer</a>`
+                           : `<span style="font-size:0.72rem;color:var(--text-muted)">No trailer</span>`}
+                       </td>
+                       <td style="font-size:0.82rem;color:var(--text-muted);white-space:nowrap">${escHtml(m.genre || '—')}</td>
+                       <td style="font-size:0.82rem">${escHtml(m.language || '—')}</td>
+                       <td style="font-size:0.82rem;font-family:var(--font-mono)">${m.duration ? m.duration + ' min' : '—'}</td>
+                       <td><span style="color:var(--gold);font-weight:700">★ ${m.rating || 0}</span></td>
+                       <td><span class="${m.is_active ? 'badge-active' : 'badge-inactive'}">${m.is_active ? 'Active' : 'Hidden'}</span></td>
+                       <td>
+                         <div class="flex gap-8">
+                           <button class="action-btn btn-edit"   onclick="openEditModal(${m.id})">✏️ Edit</button>
+                           <button class="action-btn btn-delete" onclick="confirmDelete(${m.id}, '${escHtml(m.title).replace(/'/g,"\\'")}')">🗑️ Remove</button>
+                         </div>
+                       </td>
+                     </tr>
+                   `).join('')}
+                 </tbody>
+               </table>
+             </div>`
+        }`;
+    }
+
+    // ── Group sessions ────────────────────────────────────────────────────────
+    function renderSessionsNote(el) {
+      el.innerHTML = `
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:24px">
+          <h3 style="font-family:var(--font-display);margin-bottom:12px">Group Sessions</h3>
+          <p class="text-muted mb-16" style="font-size:0.9rem">
+            Active group sessions are managed in real-time via WebSocket. Sessions expire after 30 minutes of inactivity.
+          </p>
+          <div style="background:var(--bg2);border-radius:var(--radius-sm);padding:16px;font-family:var(--font-mono);font-size:0.82rem;color:var(--text-muted)">
+            • Sessions are stored in SQLite under <strong>group_sessions</strong> table<br>
+            • Real-time member state lives in server memory (Map)<br>
+            • Seat locks expire after 5 minutes automatically<br>
+            • Only session creator can confirm the final booking
+          </div>
+        </div>`;
+    }
+
+    // ══ MODAL ════════════════════════════════════════════════════════════════
+
+    function openAddModal() {
+      editingId = null;
+      document.getElementById('modal-title').textContent  = '➕ Add Movie';
+      document.getElementById('modal-submit').textContent = 'Add Movie';
+      document.getElementById('active-group').style.display = 'none';
+      clearForm();
+      document.getElementById('movie-modal').classList.add('open');
+    }
+
+    function openEditModal(id) {
+      const movie = (allData.movies || []).find(m => m.id === id);
+      if (!movie) return;
+      editingId = id;
+      document.getElementById('modal-title').textContent  = '✏️ Edit Movie';
+      document.getElementById('modal-submit').textContent = 'Save Changes';
+      document.getElementById('active-group').style.display = '';
+
+      document.getElementById('f-title').value    = movie.title       || '';
+      document.getElementById('f-desc').value     = movie.description || '';
+      document.getElementById('f-genre').value    = movie.genre       || '';
+      document.getElementById('f-lang').value     = movie.language    || 'English';
+      document.getElementById('f-duration').value = movie.duration    || '';
+      document.getElementById('f-rating').value   = movie.rating      || '';
+      document.getElementById('f-poster').value   = movie.poster      || '';
+      document.getElementById('f-trailer').value  = movie.trailer_url || '';
+      document.getElementById('f-active').value   = movie.is_active ?? 1;
+
+      previewPoster(movie.poster);
+      document.getElementById('movie-modal').classList.add('open');
+    }
+
+    function closeModal() {
+      document.getElementById('movie-modal').classList.remove('open');
+    }
+
+    function handleOverlayClick(e) {
+      if (e.target === document.getElementById('movie-modal')) closeModal();
+    }
+
+    function clearForm() {
+      ['f-title','f-desc','f-genre','f-duration','f-rating','f-poster','f-trailer']
+        .forEach(id => { document.getElementById(id).value = ''; });
+      document.getElementById('f-lang').value   = 'Hindi';
+      document.getElementById('f-active').value = '1';
+      previewPoster('');
+    }
+
+    function previewPoster(url) {
+      document.getElementById('poster-preview').src =
+        url || 'https://via.placeholder.com/640x200/12121f/f5c518?text=Paste+a+poster+URL+below';
+    }
+
+    async function submitMovie() {
+      const title = document.getElementById('f-title').value.trim();
+      if (!title) { toast('Movie title is required', 'error'); return; }
+
+      const body = {
+        title,
+        description: document.getElementById('f-desc').value.trim(),
+        genre:       document.getElementById('f-genre').value.trim(),
+        language:    document.getElementById('f-lang').value,
+        duration:    Number(document.getElementById('f-duration').value) || 0,
+        rating:      Number(document.getElementById('f-rating').value)   || 0,
+        poster:      document.getElementById('f-poster').value.trim(),
+        trailer_url: document.getElementById('f-trailer').value.trim(),
+      };
+
+      const btn = document.getElementById('modal-submit');
+      btn.disabled    = true;
+      btn.textContent = 'Saving…';
+
+      try {
+        if (editingId) {
+          body.is_active = Number(document.getElementById('f-active').value);
+          const updated = await AdminMoviesAPI.update(editingId, body);
+          const idx = allData.movies.findIndex(m => m.id === editingId);
+          if (idx !== -1) allData.movies[idx] = updated;
+          toast('Movie updated ✅');
+        } else {
+          const created = await AdminMoviesAPI.add(body);
+          allData.movies.unshift(created);
+          toast('Movie added ✅');
+        }
+        renderStats();
+        closeModal();
+        if (activeTab === 'movies') renderTab('movies');
+      } catch (err) {
+        toast(err.message || 'Failed to save movie', 'error');
+      } finally {
+        btn.disabled    = false;
+        btn.textContent = editingId ? 'Save Changes' : 'Add Movie';
+      }
+    }
+
+    // ══ DELETE ═══════════════════════════════════════════════════════════════
+
+    let pendingDeleteId = null;
+
+    function confirmDelete(id, title) {
+      pendingDeleteId = id;
+      document.getElementById('confirm-msg').textContent =
+        `"${title}" will be hidden from all listings. Existing bookings remain unaffected.`;
+      document.getElementById('confirm-overlay').classList.add('open');
+      document.getElementById('confirm-ok').onclick = async () => {
+        try {
+          await AdminMoviesAPI.delete(pendingDeleteId);
+          allData.movies = allData.movies.filter(m => m.id !== pendingDeleteId);
+          toast('Movie removed from listings 🗑️');
+          renderStats();
+          if (activeTab === 'movies') renderTab('movies');
+        } catch (err) {
+          toast(err.message || 'Delete failed', 'error');
+        } finally {
+          closeConfirm();
+        }
+      };
+    }
+
+    function closeConfirm() {
+      document.getElementById('confirm-overlay').classList.remove('open');
+      pendingDeleteId = null;
+    }
+
+    document.getElementById('confirm-overlay').addEventListener('click', function(e) {
+      if (e.target === this) closeConfirm();
+    });
+
+    function escHtml(str) {
+      return String(str ?? '')
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;');
+    }
+
+    loadAdminData();
+  </script>
+</body>
+</html>

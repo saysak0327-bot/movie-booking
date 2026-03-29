@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CinemaBook — Now Showing</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    /* ── Trailer hover overlay ───────────────────────────── */
+    .movie-poster-wrap {
+      position: relative;
+      aspect-ratio: 2/3;
+      overflow: hidden;
+      background: #0a0a14;
+    }
+
+    /* Play button hint shown on hover */
+    .trailer-hint {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+      pointer-events: none;
+      z-index: 3;
+    }
+    .trailer-hint-icon {
+      width: 52px; height: 52px;
+      background: rgba(245,197,24,0.92);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 0 24px rgba(245,197,24,0.5);
+    }
+    .trailer-hint-icon svg { margin-left: 4px; }
+    .trailer-hint-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #fff;
+      text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+    }
+    .movie-card:hover .trailer-hint { opacity: 1; }
+
+    /* Inline muted preview iframe */
+    .trailer-preview {
+      position: absolute;
+      inset: 0;
+      width: 100%; height: 100%;
+      border: none;
+      z-index: 4;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+      pointer-events: none;
+    }
+    .trailer-preview.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* ── Trailer lightbox modal ──────────────────────────── */
+    #trailer-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.92);
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    #trailer-modal.open { opacity: 1; pointer-events: auto; }
+    .trailer-modal-inner {
+      position: relative;
+      width: 100%;
+      max-width: 900px;
+      aspect-ratio: 16/9;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 0 80px rgba(0,0,0,0.9);
+    }
+    #trailer-modal iframe { width: 100%; height: 100%; border: none; }
+    .trailer-modal-close {
+      position: absolute;
+      top: -40px; right: 0;
+      width: 32px; height: 32px;
+      background: rgba(255,255,255,0.12);
+      border: none; border-radius: 50%;
+      color: #fff; font-size: 1.1rem;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.2s;
+    }
+    .trailer-modal-close:hover { background: rgba(255,255,255,0.25); }
+    .trailer-modal-title {
+      position: absolute;
+      top: -42px; left: 0;
+      font-size: 0.9rem;
+      color: rgba(255,255,255,0.7);
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+      max-width: calc(100% - 48px);
+    }
+
+    /* ── Card polish ─────────────────────────────────────── */
+    .movie-poster {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      transition: transform 0.4s ease;
+      position: relative; z-index: 1;
+    }
+    .movie-card:hover .movie-poster { transform: scale(1.06); }
+    .movie-overlay {
+      position: absolute; inset: 0;
+      background: linear-gradient(0deg, rgba(8,8,16,0.95) 0%, transparent 55%);
+      z-index: 2;
+    }
+    .movie-badge {
+      position: absolute; top: 10px; left: 10px;
+      background: var(--red); color: #fff;
+      font-size: 0.7rem; font-weight: 700;
+      padding: 3px 8px; border-radius: 4px;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      z-index: 5;
+    }
+    .movie-card.no-trailer .trailer-hint { display: none; }
+  </style>
+</head>
+<body>
+  <nav class="navbar" id="navbar"></nav>
+
+  <main class="container">
+    <div class="hero">
+      <h1 class="hero-title">Now <span>Showing</span></h1>
+      <p class="hero-sub">Book your seats before they're gone. Real-time availability, instant confirmation.</p>
+      <div class="flex flex-center gap-8" style="flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="document.getElementById('movies-section').scrollIntoView({behavior:'smooth'})">
+          🎬 Browse Movies
+        </button>
+        <button class="btn btn-outline" onclick="openGroupJoin()">
+          👥 Join Group Booking
+        </button>
+      </div>
+    </div>
+
+    <div class="section" id="movies-section">
+      <div class="flex gap-12 mb-24" style="flex-wrap:wrap;align-items:center">
+        <input type="text" id="search-input" class="form-input" placeholder="🔍  Search movies…"
+               style="max-width:280px" oninput="filterMovies()" />
+        <select id="genre-filter" class="form-input" style="max-width:180px" onchange="filterMovies()">
+          <option value="">All Genres</option>
+        </select>
+        <select id="lang-filter" class="form-input" style="max-width:160px" onchange="filterMovies()">
+          <option value="">All Languages</option>
+        </select>
+      </div>
+
+      <div id="movies-grid" class="movie-grid">
+        <div class="loader"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Group Join Modal -->
+  <div class="modal-overlay hidden" id="group-join-modal">
+    <div class="modal">
+      <div class="flex" style="justify-content:space-between;align-items:center;margin-bottom:20px">
+        <span class="modal-title">👥 Join Group Booking</span>
+        <span class="modal-close" onclick="closeModal('group-join-modal')">✕</span>
+      </div>
+      <p class="text-muted mb-16" style="font-size:0.9rem">
+        Enter the 6-character code shared by your friend to join their booking session.
+      </p>
+      <div class="form-group">
+        <label class="form-label">Session Code</label>
+        <input type="text" id="join-code-input" class="form-input font-mono"
+               placeholder="e.g. ABC123" maxlength="6"
+               style="text-transform:uppercase;font-size:1.4rem;letter-spacing:0.2em;text-align:center"
+               oninput="this.value=this.value.toUpperCase()" />
+      </div>
+      <button class="btn btn-gold btn-block btn-lg mt-12" onclick="joinGroupSession()">
+        Join Session
+      </button>
+    </div>
+  </div>
+
+  <!-- Trailer Lightbox -->
+  <div id="trailer-modal" onclick="closeTrailerModal(event)">
+    <div class="trailer-modal-inner">
+      <span class="trailer-modal-title" id="trailer-modal-title"></span>
+      <button class="trailer-modal-close" onclick="closeTrailerModal()">✕</button>
+      <iframe id="trailer-iframe" allow="autoplay; fullscreen" allowfullscreen></iframe>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    if (!requireAuth()) throw new Error('Not authenticated');
+    renderNavbar('movies');
+
+    let allMovies = [];
+    const hoverTimers   = new WeakMap();
+    const activePreviews = new WeakMap();
+
+    async function loadMovies() {
+      try {
+        allMovies = await MoviesAPI.list();
+        populateFilters();
+        renderMovies(allMovies);
+      } catch (err) {
+        document.getElementById('movies-grid').innerHTML =
+          `<div class="empty-state"><div class="empty-icon">⚠️</div><div>${err.message}</div></div>`;
+      }
+    }
+
+    function populateFilters() {
+      const genres = [...new Set(allMovies.map(m => m.genre).filter(Boolean))];
+      const langs  = [...new Set(allMovies.map(m => m.language).filter(Boolean))];
+      const gSel   = document.getElementById('genre-filter');
+      const lSel   = document.getElementById('lang-filter');
+      genres.forEach(g => { const o = document.createElement('option'); o.value = g; o.textContent = g; gSel.appendChild(o); });
+      langs.forEach(l  => { const o = document.createElement('option'); o.value = l; o.textContent = l; lSel.appendChild(o); });
+    }
+
+    function filterMovies() {
+      const q  = document.getElementById('search-input').value.toLowerCase();
+      const g  = document.getElementById('genre-filter').value;
+      const l  = document.getElementById('lang-filter').value;
+      const filtered = allMovies.filter(m =>
+        (!q || m.title.toLowerCase().includes(q) || (m.description||'').toLowerCase().includes(q)) &&
+        (!g || m.genre === g) &&
+        (!l || m.language === l)
+      );
+      renderMovies(filtered);
+    }
+
+    function getYtId(url) {
+      if (!url) return '';
+      const m = url.match(/embed\/([^?]+)/);
+      return m ? m[1] : '';
+    }
+
+    function renderMovies(movies) {
+      const grid = document.getElementById('movies-grid');
+      if (!movies.length) {
+        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
+          <div class="empty-icon">🎬</div>
+          <div class="empty-title">No movies found</div>
+          <p class="text-muted">Try adjusting your filters</p>
+        </div>`;
+        return;
+      }
+
+      grid.innerHTML = movies.map(m => `
+        <div class="movie-card ${m.trailer_url ? '' : 'no-trailer'}"
+             data-id="${m.id}"
+             data-trailer="${m.trailer_url || ''}"
+             data-title="${(m.title||'').replace(/"/g,'&quot;')}">
+          <div class="movie-poster-wrap">
+            <img class="movie-poster"
+                 src="${m.poster || 'https://placehold.co/200x300/12121f/f5c518?text=No+Poster'}"
+                 alt="${m.title}"
+                 onerror="this.src='https://placehold.co/200x300/12121f/f5c518?text=No+Poster'" />
+            <div class="movie-overlay"></div>
+            <div class="movie-badge">${m.language}</div>
+            ${m.trailer_url ? `
+            <div class="trailer-hint">
+              <div class="trailer-hint-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="#12121f"><path d="M8 5v14l11-7z"/></svg>
+              </div>
+              <span class="trailer-hint-label">Watch Trailer</span>
+            </div>` : ''}
+          </div>
+          <div class="movie-info">
+            <div class="movie-title">${m.title}</div>
+            <div class="movie-meta">
+              <span class="movie-rating">★ ${m.rating.toFixed(1)}</span>
+              <span class="movie-genre">${m.genre || ''}</span>
+            </div>
+            <div class="text-muted mt-8" style="font-size:0.78rem">${m.duration} mins</div>
+          </div>
+        </div>
+      `).join('');
+
+      grid.querySelectorAll('.movie-card').forEach(card => {
+        const trailerUrl = card.dataset.trailer;
+        const movieId    = card.dataset.id;
+        const title      = card.dataset.title;
+        const ytId       = getYtId(trailerUrl);
+
+        // Click: lightbox if trailer previewing, else navigate
+        card.addEventListener('click', () => {
+          if (trailerUrl && activePreviews.get(card)) {
+            openTrailerModal(trailerUrl, title);
+          } else {
+            window.location.href = `/movie.html?id=${movieId}`;
+          }
+        });
+
+        if (!trailerUrl) return;
+
+        // Hover enter: wait 600ms then inject muted autoplay preview
+        card.addEventListener('mouseenter', () => {
+          const timer = setTimeout(() => {
+            const iframe = document.createElement('iframe');
+            iframe.className = 'trailer-preview';
+            iframe.allow = 'autoplay; encrypted-media';
+            iframe.src = `https://www.youtube.com/embed/${ytId}?autoplay=1&mute=1&controls=0&loop=1&playlist=${ytId}&modestbranding=1&rel=0&showinfo=0`;
+            card.querySelector('.movie-poster-wrap').appendChild(iframe);
+            requestAnimationFrame(() => requestAnimationFrame(() => iframe.classList.add('visible')));
+            activePreviews.set(card, iframe);
+          }, 600);
+          hoverTimers.set(card, timer);
+        });
+
+        // Hover leave: clear timer and remove preview
+        card.addEventListener('mouseleave', () => {
+          clearTimeout(hoverTimers.get(card));
+          const iframe = activePreviews.get(card);
+          if (iframe) {
+            iframe.classList.remove('visible');
+            setTimeout(() => iframe.remove(), 350);
+            activePreviews.delete(card);
+          }
+        });
+      });
+    }
+
+    // ── Lightbox ─────────────────────────────────────────────────────────
+    function openTrailerModal(trailerUrl, title) {
+      const ytId = getYtId(trailerUrl);
+      document.getElementById('trailer-iframe').src =
+        `https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0&modestbranding=1`;
+      document.getElementById('trailer-modal-title').textContent = title + ' — Official Trailer';
+      document.getElementById('trailer-modal').classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeTrailerModal(e) {
+      if (e && e.target !== document.getElementById('trailer-modal')) return;
+      document.getElementById('trailer-modal').classList.remove('open');
+      document.getElementById('trailer-iframe').src = '';
+      document.body.style.overflow = '';
+    }
+
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTrailerModal(); });
+
+    // ── Group join ───────────────────────────────────────────────────────
+    function openGroupJoin() {
+      document.getElementById('group-join-modal').classList.remove('hidden');
+      setTimeout(() => document.getElementById('join-code-input').focus(), 100);
+    }
+    function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+    async function joinGroupSession() {
+      const code = document.getElementById('join-code-input').value.trim().toUpperCase();
+      if (!code || code.length < 4) { toast('Enter a valid session code', 'error'); return; }
+      try {
+        const data = await GroupsAPI.join(code);
+        window.location.href = `/group.html?session=${code}&show=${data.session.show_id}`;
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    }
+
+    document.getElementById('group-join-modal').addEventListener('click', function(e) {
+      if (e.target === this) closeModal('group-join-modal');
+    });
+
+    loadMovies();
+  </script>
+</body>
+</html>
